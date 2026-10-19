@@ -52,8 +52,9 @@ agent_created: true
 `dsh plugin` 把参数原样转发给 pnpm 在 profile 目录执行，排查就按 pnpm 这条线走：
 
 1. 先读命令输出和错误信息，里面通常给出诊断日志位置，日志里是真正原因。
-2. 若被 pnpm 供应链策略拦截（例如 minimumReleaseAge 不采用刚发布不久的版本）：直接点名精确版本 `add 包名@x.y.z`。这是 pnpm 官方行为，见 pnpm 官方文档：https://pnpm.io/supply-chain-security 和 https://pnpm.io/settings 。
+2. 若被 pnpm 的新版本冷却策略挡住（pnpm 11 起 `minimumReleaseAge` 默认 1440 分钟，发布不满 1 天的版本不会被采用，`outdated` 里根本不显示它）：要用官方排除机制放行——在 `%USERPROFILE%\.dsh\profiles\desktop\pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 里点名 `包名@版本`，再执行 `add 包名@版本`。点名精确版本本身不能绕过这个策略。放行等于跳过新版本冷却保护，必须先让用户知情同意。pnpm 官方文档：https://pnpm.io/settings/dependency-resolution#minimumreleaseage 和 https://pnpm.io/supply-chain-security 。
 3. 若被版本兼容检查拒绝：见下一节。
+4. （实测）更新会连带升级关联包：pnpm 会一起更新它认定的"首选版本"依赖，例如更新 dshmarket@1.66.42 时顺带把 billion-context 从 0.1.201 升到 0.1.202，并自动往 `minimumReleaseAgeExclude` 补一条。装完要核对完整依赖清单和 node_modules 实际版本，不能只看目标包。
 
 ## 兼容性检查与豁免（官方）
 
