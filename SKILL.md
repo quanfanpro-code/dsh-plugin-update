@@ -1,14 +1,15 @@
 ---
 name: dsh-plugin-update
-description: 更新 DeepSeek Harness（DSH）第三方插件的操作指南。铁律：使用前必须先联网核对官方最新文档；内容仅来自官方文档（仅排查章节含实测经验，已标注）。当用户要求更新或升级 DSH 插件、DSH 插件市场更新报错、重启后仍显示重启后生效、查询哪些插件有新版本、回滚插件版本，或询问 dsh plugin 用法时使用。
-agent_created: true
+description: 更新、回滚和排查 DeepSeek Harness（DSH）第三方插件。使用前核对官方文档与实际安装版本；官方机制和本机实测经验分别标明。用于插件升级失败、重启后未生效、工具调用报 prepare 错误、钩子异常，以及 dsh plugin 用法。
+metadata:
+  agent_created: "true"
 ---
 
 # DSH 第三方插件更新指南
 
 ## 铁律：用之前先读官方文档
 
-本技能只依据 DeepSeek Harness 官方文档编写。官方文档会变化，每次使用前必须联网核对以下原文；与本文不一致时以官方原文为准，并顺手更新本技能：
+操作方法依据 DeepSeek Harness 官方文档；本机故障和修复结果另标为实测经验。每次使用前，先核实桌面版/CLI 的实际版本与 profile，再联网核对以下原文；与本文不一致时以对应版本的官方资料为准：
 
 - 官方仓库：https://github.com/deepseek-ai/deepseek-harness
 - CLI 插件命令说明：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/apps/cli/README.md
@@ -16,6 +17,10 @@ agent_created: true
 - 插件管理器（兼容性与豁免）：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/boot/plugin-manager/README.md
 
 链接失效时，到官方仓库对应路径找最新 README。
+
+最新分支的接口可能已不同于已安装版本。排障还要核对对应发布标签的文档和源码；例如本次 `0.2.1-rc.3` 对应 `dsh-v0.2.1-rc.3`，其他版本先从官方发布页核实标签，不猜名称。不熟悉的配置、服务接口、钩子输出协议，查清后再改。
+
+安装成功、独立导入成功、界面能打开，都不能证明工具和钩子可用。记录当前证据能证明到哪一步；用户已授权恢复功能时，继续完成恢复与功能验证，不把临时停用当成最终交付。
 
 ## 先分清是哪种环境
 
@@ -66,14 +71,15 @@ agent_created: true
 
 ## 回滚
 
-改动前先备份 profile 的 `package.json`。出问题：恢复备份重新安装，或 `add 包名@旧版本` 装回旧版。
+改动前按本机规则备份并校验拟改动的 `package.json`、锁文件、`cordis.patch.yml`、`pnpm-workspace.yaml` 及相关脚本；将要移动或替换的插件目录也要备份。保留原编码与 BOM。出问题时，恢复相互匹配的配置和依赖，或用 `add 包名@旧版本` 装回旧版；不能只恢复一个文件就声称已回滚。
 
 ## 更新后检查
 
-1. `dsh.cmd plugin --profile desktop outdated` 无输出即全部最新。
+1. 检查 `dsh.cmd plugin --profile desktop outdated` 的退出码和输出；成功且无待更新项，只说明在当前源与发布冷却策略下没有可见更新。
 2. 打开 profile 的 `package.json` 核对版本号。
 3. 完全退出再重开桌面版，确认插件功能正常。
 4. 打开插件市场逐个看状态：显示「已生效」才算真正跑起来；仍显示「已安装，重启后生效」的，按下一节排查。
+5. 实际调用受影响的工具。钩子要同时验证正常操作放行、应拦截操作被拦截、理由正确、目标文件未被误改，以及拦截后普通工具仍可使用。文件读写验证应在真实 Agent 会话中完成，不需要为此额外发送模型请求。
 
 ## 重启后市场仍显示「已安装，重启后生效」
 
@@ -92,8 +98,18 @@ agent_created: true
 
 修复：
 
-- 依赖库落后：把那个公共库单独升级，例如 `dsh.cmd plugin --profile desktop update 依赖名`（不行就点名精确版本 `add 依赖名@版本号`），升级后再跑一次导入测试，通过后重启桌面版。
+- 第三方共享库落后：核对插件声明和缺失导出后，再单独升级对应库，例如 `dsh.cmd plugin --profile desktop update 依赖名`，必要时点名精确版本。不要将此办法套到桌面版已提供的核心库上：遇到缺依赖先核对官方运行时的加载规则，不能为让独立导入通过就批量补装 `@deepseek-ai/dsh-*`。
 - 插件本身有 bug：回滚到上一个版本，见「回滚」。
 - 动手前先备份 profile 的 package.json 与锁文件，出问题按「回滚」还原。
 
 实测案例：dsh-md-render 0.5.2 导入时报 `The requested module 'dsh-shared' does not provide an export named 'createTrustFence'`，原因是 profile 里 dsh-shared 还是 0.1.6，而 0.5.2 需要 0.1.7 才有的 createTrustFence；单独把 dsh-shared 升到 0.1.7 后导入正常，重启后插件正常加载。
+
+## 工具调用报 prepare 错误或钩子异常
+
+遇到 `Cannot read properties of undefined (reading 'prepare')`，或安装钩子依赖后所有工具失效，先读[2026-10-25 钩子与核心库冲突复盘](references/2026-10-25-钩子与核心库冲突.md)。其中区分官方机制、本机证据、验证脚本错误和最终验收结果。
+
+- 先从会话日志和同版本源码定位报错层次，不凭“刚装了钩子”就判定钩子不兼容或官方尚未修复。
+- 核对 profile 与桌面安装包里的核心库实际加载来源；相同版本的两份实体包也可能冲突。只移除依赖声明不一定消除磁盘上的副本，单独停用桥接也不一定恢复调度。
+- 只有确认额外副本抢先加载时，才在停止目标 DSH、备份并校验后，将相关副本移到集中备份目录，保持依赖清单和锁文件一致。复盘中的 8 个包是本次证据范围，不是通用删除清单。
+- 钩子结构化 JSON 输出的退出码、输出流和字符编码，要按对应版本协议核对。正常工具能用后，在已授权的恢复范围内重新启用并验证钩子；临时停用只是排障步骤。
+- 只有证据确认存在当前无法绕过的上游阻碍时，才报告未完成项和依据；不能把尚未验证写成不能用，也不能把核心库冲突直接归为钩子插件 bug。
